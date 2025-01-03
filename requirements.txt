@@ -1,0 +1,6 @@
+chainlit
+openai
+python-dotenv
+pandas
+tensorflow
+numpy
