@@ -1,53 +1,60 @@
-import chainlit as cl
-from app.api.openai_client import OpenAIClient
-from app.handlers.data_handler import DataHandler
-from app.handlers.model_handler import ModelHandler
-from app.utils.message_formatter import MessageFormatter
+import streamlit as st
+from openai import OpenAI
 
-openai_client = OpenAIClient()
+# Initialize the OpenAI client
+client = OpenAI()
 
-@cl.on_chat_start
-async def start():
-    await cl.Message(content="Welcome! I'm your AI assistant for text classification. Please upload your CSV file to get started.").send()
+# Function to generate response from the OpenAI API
+def get_openai_response(messages):
+    completion = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=messages
+    )
+    return completion.choices[0].message.content
 
-@cl.on_message
-async def main(message: cl.Message):
-    # Add user message to conversation
-    openai_client.add_message("user", message.content)
-    
-    # Define available tools (your existing function definitions)
-    tools = [
-        {
-            "type": "function",
-            "function": {
-                "name": "load_and_explore_csv",
-                # ... (your existing function definitions)
-            }
-        },
-        # ... (add other tools)
+# Streamlit UI
+st.title("Chatbot Application")
+
+# Initialize chat history with a system prompt (but exclude it from display)
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {"role": "system", "content": "You are a helpful assistant. Provide clear and concise answers."},
+        {"role": "assistant", "content": "Hey there! How can I help you today?"}
     ]
 
-    try:
-        # Get completion from OpenAI
-        response = await openai_client.get_completion(tools)
-        
-        # Handle tool calls if present
-        if response.choices[0].message.tool_calls:
-            for tool_call in response.choices[0].message.tool_calls:
-                if tool_call.function.name == "load_and_explore_csv":
-                    # Handle data exploration
-                    result = await DataHandler.handle_data_exploration(**tool_call.function.arguments)
-                    formatted_result = await MessageFormatter.format_data_exploration(result)
-                    await cl.Message(content=formatted_result).send()
-                
-                # Add handlers for other functions...
-        
-        # Send assistant's response
-        if response.choices[0].message.content:
-            await cl.Message(content=response.choices[0].message.content).send()
-            
-    except Exception as e:
-        await cl.Message(content=f"An error occurred: {str(e)}").send()
+# Display chat messages, but exclude the system message
+for message in st.session_state.messages:
+    if message["role"] != "system":  # Skip the system message
+        with st.chat_message(message["role"]):
+            st.write(message["content"])
 
-if __name__ == "__main__":
-    cl.run()
+# Function to clear chat history
+def clear_chat_history():
+    st.session_state.messages = [
+        {"role": "system", "content": "You are a helpful assistant. Provide clear and concise answers."},
+        {"role": "assistant", "content": "Hey there! How can I help you today?"}
+    ]
+st.sidebar.button('Clear Chat History', on_click=clear_chat_history)
+
+# User-provided prompt
+if prompt := st.chat_input():
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.write(prompt)
+
+# Generate a new response if last message is not from assistant
+if st.session_state.messages[-1]["role"] != "assistant":
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking..."):
+            # Pass the entire message history to OpenAI for context
+            response = get_openai_response(st.session_state.messages)
+            placeholder = st.empty()
+            full_response = ''
+            for item in response:
+                full_response += item
+                placeholder.markdown(full_response)
+            placeholder.markdown(full_response)
+
+    # Add assistant response to chat history
+    message = {"role": "assistant", "content": full_response}
+    st.session_state.messages.append(message)
